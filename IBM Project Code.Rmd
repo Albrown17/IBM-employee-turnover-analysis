@@ -1,0 +1,575 @@
+---
+title: "IBM Employee Turnover Analysis"
+subtitle: Abby Brown & Tao Wu
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+```{r, echo=FALSE}
+library(data.table)
+library(Hmisc)
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+library(caret)
+library(pROC)
+library(randomForest)
+library(caTools)
+library(e1071)
+library(glmnet)
+library(mboost)
+library(pander)
+```
+
+
+### **Abstract**
+
+During Covid19, a lot of companies had difficulty hiring new employees, so we wanted to do some research and analysis to find out how to keep employees working for the company. The project uses the data of IBM resigned employees for analysis. On the basis of observing the influencing factors of turnover rate, we established a model to predict which employees are more likely to leave. Through the practice of data on IBM resigned employees, we discovered the factors that affect employee turnover, and reviewed the data analysis process using R language to deepen the understanding of the meaning of data analysis. Since the data contained no missing values and has various elements relevant to the employee, it is an excellent source to answer our questions.
+
+
+
+
+### **1   Introduction**
+
+A company’s turnover rate is the percentage of employees who left a company over a certain period of time. Many factors influence resignations including commute, overtime, environment satisfaction, job satisfaction, and traveling for work, to name a few. See below for the different variables relevant to employees that we explored.
+
+
+```{r, echo=FALSE}
+myData <- fread("IBM.csv", header=T)
+
+Index <- c(1:29)
+Variables <- colnames(myData)[-c(2, 4, 9, 10, 20, 22)]
+xy <- data.frame(Index,Variables)
+pander(xy)
+```
+
+
+### **2   Obtaining the Data**
+
+The data for this project was obtained via Kaggle:
+
+*https://www.kaggle.com/pavansubhasht/ibm-hr-analytics-attrition-dataset*
+
+We downloaded and renamed the file “IBM.csv” and read it in. After initial analysis, we noticed, among other things, that the average age of employees is about 36 years old, the oldest is 60 years old, and the youngest is 18 years old. Among all 1,470 employees, 237 resigned, with a turnover rate of 16%. The average employee income is $6,500 a month, the median is $4,919, the minimum is $1,009, and the max is $19,999 a month. See below for further descriptions.
+
+
+### **3   Basic Identity Factors Influencing Turnover Rate**
+
+We visualized how different basic identity factors can influence turnover rate by looking at how often people resigned considering these factors. In Figure 1 we see that gender has little to do with turnover rate but people under the age of 33 are more likely to leave their jobs as shown in Figure 2. Figure 3 tells us that the higher level of education, the lower the turnover rate, but the difference is not particularly obvious. Figures 4 and 5 show us that unmarried singles are more likely to leave their jobs as are people who have worked for more than 5 companies.
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+
+<style>
+.zoomDiv {
+  opacity: 0;
+  position:fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 50;
+  transform: translate(-50%, -50%);
+  box-shadow: 0px 0px 50px #888888;
+  max-height:100%; 
+  overflow: scroll;
+}
+
+.zoomImg {
+  width: 100%;
+}
+</style>
+
+
+<script type="text/javascript">
+  $(document).ready(function() {
+    $('body').prepend("<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>");
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src'));
+      $('.zoomDiv').css({opacity: '1', width: '60%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'});
+    });
+  });
+</script>
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p1_Gender <- ggplot(data = myData, aes(x = Gender)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "Gender VS Employee turnover", x = "Gender", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p1_Gender
+```
+Figure 1: Employee turnover considering gender.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p2_Age <- ggplot(data = myData, aes(x = Age)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "Age VS Employee turnover", x = "Age", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(18, 60, 5))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p2_Age
+```
+Figure 2: Employee turnover considering age.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p3_Education  <- ggplot(data = myData, aes(x = Education)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "Edu Level VS Employee turnover", x = "Edu Level", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p3_Education
+```
+
+Figure 3: Employee turnover considering education.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p4_MaritalStatus <- ggplot(data = myData, aes(x = MaritalStatus)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "MaritalStatus VS Employee turnover", x = "Marital Status", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p4_MaritalStatus
+```
+
+Figure 4: Employee turnover considering marital status.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p5_NumCompaniesWorked <- ggplot(data = myData, aes(x = NumCompaniesWorked)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "NumCompaniesWorked VS Employee turnover", x = "NumCompaniesWorked", y = "Possibility of resigning")+
+  scale_x_continuous(breaks = seq(0, 9, 1)) +
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p5_NumCompaniesWorked
+```
+
+Figure 5: Employee turnover considering the number of companies the employee previously worked at.
+
+### **4   Work Identity Factors Influencing Turnover Rate**
+
+Regarding basic information about a person’s professional life, seen below in figures 6 through 9, people with a total working experience of less than 8 years are more likely to leave as are people who have worked for IBM for less than 4 years. Low job level employees are more likely to leave the company. Think of job levels  as power levels, so a 1 would be entry level and 4 would be a manager of some sort. Specifically, there is a high turnover rate for the sales department. 
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p6_TotalWorkingYears <- ggplot(data = myData, aes(x = TotalWorkingYears)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "TotalWorkingYears VS Employee turnover", x = "TotalWorkingYears", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(0, 40, 5))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p6_TotalWorkingYears
+```
+
+Figure 6:  Employee turnover considering total working years for the employee.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p7_YearsAtCompany <- ggplot(data = myData, aes(x = YearsAtCompany)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "YearsAtCompany VS Employee turnover", x = "YearsAtCompany", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(0, 40, 5))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p7_YearsAtCompany
+```
+
+Figure 7:  Employee turnover considering the number of years at the company.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p8_JobRole <- ggplot(data = myData, aes(x = JobRole)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "JobRole VS Employee turnover", x = "JobRole", y = "Proportion") +
+  coord_flip()+
+  scale_fill_discrete(name="isResigned")
+p8_JobRole
+```
+
+Figure 8:  Employee turnover considering job role.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p9_JobLevel <- ggplot(data = myData, aes(x = JobLevel)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "JobLevel VS Employee turnover", x = "JobLevel", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p9_JobLevel
+```
+
+Figure 9:  Employee turnover considering job level.
+
+
+### **5    Analyzing how Salary, Involvement, & Performance Influence Turnover Rate**
+
+Analyzing how monthly income, job involvement, and performance rating affect turnover rates in figures 10-13, we discover some interesting results. The turnover rate of  employees with a monthly income below $4,000 and around $10,000 is higher. And while performance rating has very little effect on turnover rate, we do see that the higher the work involvement, the lower the turnover rate. But with the same work involvement, the monthly income of resigned employees is lower than in-service employees. 
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p10_MonthlyIncome <- ggplot(data = myData, aes(x = MonthlyIncome)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "MonthlyIncome VS Employee turnover", x = "MonthlyIncome", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(0, 20000, 3000)) +
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p10_MonthlyIncome
+```
+
+Figure 10:  Employee turnover considering monthly income.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p11_JobInvolvement <- ggplot(data = myData, aes(x = JobInvolvement)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "JobInvolvement VS Employee turnover", x = "JobInvolvement", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p11_JobInvolvement
+```
+
+Figure 11:  Employee turnover considering job involvement.
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p12_PerformanceRating <- ggplot(data = myData, aes(x = PerformanceRating)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "PerformanceRating VS Employee turnover", x = "PerformanceRating", y = "Proportion") +
+  scale_x_continuous(breaks = seq(3, 4, 1))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p12_PerformanceRating
+```
+
+Figure 12:  Employee turnover considering performance rating.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+myData$JobInvolvement1 <- as.character(myData$JobInvolvement)
+p13_JobInvolvement_MonthlyIncome <- ggplot(data = myData, aes(x = JobInvolvement1, y = MonthlyIncome)) +
+  geom_boxplot(aes(fill = Attrition)) +
+  labs(title = "JobInvolvement VS MonthlyIncome", x = "JobInvolvement", y = "MonthlyIncome")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p13_JobInvolvement_MonthlyIncome
+```
+
+Figure 13:  Employee turnover considering job involvement and monthly income.
+
+### **6   Benefit Related Factors Influencing Turnover Rate**
+
+In this section, we analyzed figures 14-17 to see how stock option levels, salary hike percentage, training times in the previous year, and years since the last promotion can affect resignations. Results indicate that the highest and lowest stock option level are more likely to leave the company. Oddly, the salary hike percentage between 15%, 17%, and greater than 22% are more likely to leave. Generally speaking, the fewer the training times in the last year, the more likely employees are to leave. We also see that people whose salary increase interval is less than half a year or about 7 years are more likely to leave.
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p14_StockOptionLevel <- ggplot(data = myData, aes(x = StockOptionLevel)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "StockOptionLevel VS Employee turnover", x = "StockOptionLevel", y = "Proportion")+
+  theme(plot.title = element_text(size=12, face="bold"), legend.title = element_text(size=12, face="bold"))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs() 
+p14_StockOptionLevel
+```
+
+Figure 14:  Employee turnover considering the level of stocks the employee participates in.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p15_PercentSalaryHike <- ggplot(data = myData, aes(x = PercentSalaryHike)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "PercentSalaryHike VS Employee turnover", x = "PercentSalaryHike", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(0, 26, 2))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p15_PercentSalaryHike
+```
+
+Figure 15:  Employee turnover considering the percentage the employee's salary hiked in the past year.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p16_TrainingTimesLastYear <- ggplot(data = myData, aes(x = TrainingTimesLastYear)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "TrainingTimesLastYear VS Employee turnover", x = "TrainingTimesLastYear", y = "Proportion") +
+  scale_x_continuous(breaks = seq(0, 6, 1)) +
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p16_TrainingTimesLastYear
+```
+
+Figure 16:  Employee turnover considering training times last year for the individual employee.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p17_YearsSinceLastPromotion <- ggplot(data = myData, aes(x = YearsSinceLastPromotion)) +
+  geom_density(aes(fill = Attrition), alpha = 0.5) +
+  labs(title = "YearsSinceLastPromotion VS Employee turnover", x = "YearsSinceLastPromotion", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(0, 15, 1)) +
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p17_YearsSinceLastPromotion
+```
+
+Figure 17:  Employee turnover considering the years since the last promotion.
+
+### **7    Quality of Life Influencing Turnover Rate**
+
+Factors analyzed in figures 18-20 below are environment satisfaction, job satisfaction, and relationship satisfaction. Unsurprisingly, people with lower levels of satisfaction in any or all of the three factors, are more likely to resign.
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p18_EnvirnomentSatisfaction <- ggplot(data = myData, aes(x = EnvironmentSatisfaction)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "EnvironmentSatisfaction VS Employee turnover", x = "EnvironmentSatisfaction", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p18_EnvirnomentSatisfaction
+```
+
+Figure 18:  Employee turnover considering environmental satisfaction.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p19_JobSatisfication <- ggplot(data = myData, aes(x = JobSatisfaction)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "JobSatisfaction VS Employee turnover", x = "JobSatisfaction", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p19_JobSatisfication
+```
+
+Figure 19:  Employee turnover considering job satisfaction.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p20_RelationshipSatisfaction <- ggplot(data = myData, aes(x = RelationshipSatisfaction)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "RelationshipSatisfaction VS Employee turnover", x = "RelationshipSatisfaction", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p20_RelationshipSatisfaction
+```
+
+Figure 20:  Employee turnover considering relationship satisfaction.
+
+### **8   Work Life Balance Influences on Turnover Rate**
+
+Commute, overtime, and traveling for work are considered in this section as seen in figures 21, 22, and 23. We can see that who whose commute is further than 11 miles are more likely to resign, the more overtime an employee gets, the more likely they are to leave, and those who travel for work frequently are more likely to leave.
+
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p21_DistanceFromHome <- ggplot(data = myData, aes(x = DistanceFromHome)) +
+  geom_density(aes(fill = Attrition), alpha = 0.7) +
+  labs(title = "DistanceFromHome VS Employee turnover", x = "DistanceFromHome", y = "Possibility of resigning") +
+  scale_x_continuous(breaks = seq(1, 29, 1))+
+  scale_fill_discrete(name="isResigned")
+p21_DistanceFromHome
+```
+
+Figure 21:  Employee turnover considering distance from home.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p22_OverTime <- ggplot(data = myData, aes(x = OverTime)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "OverTime VS Employee turnover", x = "OverTime", y = "Proportion")+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p22_OverTime
+```
+
+Figure 22:  Employee turnover considering overtime.
+
+```{r fig.align='left', out.width = "100px", dpi=300,echo=FALSE}
+p23_BusinessTravel <- ggplot(data = myData, aes(x = BusinessTravel)) +
+  geom_bar(aes(fill = Attrition), position = "fill") +
+  labs(title = "BusinessTravel VS Employee turnover", x = "BusinessTravel", y = "Proportion") +
+  theme(axis.text.x = element_text(angle = 90))+
+  scale_fill_discrete(name="isResigned")+
+  theme_gdocs()
+p23_BusinessTravel
+```
+
+Figure 23:  Employee turnover considering the amount of business travel.
+
+
+### **9   Data preparation**
+
+There are a few steps that need to be taken to prepare the data. We cleaned it, checked for missing values, and shuffled to reduce variance and improve accuracy. Next, we created a train/test set and then built the models. Three models, glm, random forest, and gbm, were tested and compared for best accuracy. GLM had the best accuracy so we used that all the way through. 
+
+9.1 Clean the data:
+
+First, the dataset has no missing values.
+Then, the columns: EmployeeCount, EmployeeNumber, Over18, StandardHours are irrelevant for the prediction, so we need to remove them. 
+
+1) Check if there are any missing values.
+```{r, echo=FALSE,comment=NA}
+# Check if there are any missing values.
+sum(is.na(myData))
+```
+
+2) Shuffle the data randomly to reduce variance and improve model accuracy.
+```{r, echo=FALSE,comment=NA}
+# Delete irrelevant columns
+data_for_pred <- subset(myData, select = -c(EmployeeCount,EmployeeNumber, Over18, StandardHours))
+# Shuffle the data randomly
+shuffle_index <- sample(1:nrow(data_for_pred))
+data_for_pred <- data_for_pred[shuffle_index,]
+```
+
+9.2 Create train/test set
+
+1) Split the data: 80% for train set, 20% for test set.
+
+```{r, echo=FALSE,comment=NA}
+# Split the data: 80% for train set, 20% for test set
+dt <- sort(sample(nrow(data_for_pred), nrow(data_for_pred)*.8))
+data_train <- data_for_pred[dt,]
+data_test <- data_for_pred[-dt,]
+
+# Check the dimension
+#dim(data_train)
+#dim(data_test)
+
+# To verify if the randomization process is correct 
+#prop.table(table(data_train$Gender))
+#prop.table(table(data_test$Gender))
+# Results for male are about 60% means all good
+```
+Train set:
+```{r, echo=FALSE,comment=NA}
+dim(data_train)
+```
+Test set:
+```{r, echo=FALSE,comment=NA}
+dim(data_test)
+```
+
+2) Verify if the randomization process(shuffle) is correct - Results for male are about 60% means all good.
+```{r, echo=FALSE,comment=NA}
+prop.table(table(data_train$Gender))
+prop.table(table(data_test$Gender))
+```
+
+
+### **10   Build the models **
+
+1. glm model
+```{r, echo=FALSE,comment=NA}
+# Create a glm model
+library(formattable)
+set.seed(3000)
+model_glm <- glm(as.factor(Attrition) ~ ., data = data_train, family='binomial') 
+pred_glm <- predict(model_glm, data_test, type='response')
+pred_glm <- ifelse(pred_glm > 0.5,"Yes","No")
+
+# Calculate the accuracy
+t1 <- table(data_test$Attrition, pred_glm)
+pander(t1)
+accuracy_glm <- (t1[1,1] + t1[2,2]) / sum(t1)
+percent(accuracy_glm)
+
+
+```
+
+2. Random forest model
+```{r, echo=FALSE,comment=NA}
+# Create a random forest model
+set.seed(3000)
+model_rf <- randomForest(as.factor(Attrition) ~ ., data = data_train, ntree=1000, importance = T)
+pred_rf <- predict(model_rf, data_test, type = "class")
+
+# Calculate the accuracy
+t2 <- table(data_test$Attrition, pred_rf)
+pander(t2)
+accuracy_rf <- (t2[1,1] + t2[2,2]) / sum(t2)
+percent(accuracy_rf) 
+
+```
+
+3. GBM model
+
+```{r, echo=FALSE,comment=NA}
+library(gbm)
+# Create a gbm model
+set.seed(3000)
+ctrl <- trainControl(method = "cv",
+                     number = 10,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE) 
+model_gbm <- train(as.factor(Attrition) ~.,
+                data = data_train,
+                method = "gbm",
+                verbose = FALSE,
+                metric = "ROC",
+                trControl = ctrl)
+pred_gbm <- predict(model_gbm, data_test)
+
+# Calculate the accuracy
+t3 <- table(data_test$Attrition, pred_gbm)
+t3
+pander(t3)
+accuracy_gbm <- (t3[1,1] + t3[2,2]) / sum(t3)
+percent(accuracy_gbm) 
+
+
+```
+
+We see that GLM has the best accuracy so below we used it to display the most important factors for resignation using a scale of 1-10 with 0 being not important and 10 being 100% important. 
+
+```{r, echo=FALSE,comment=NA}
+vari <- as.data.frame(varImp(model_glm, scale=F))
+vari <- data.frame(overall = vari$Overall, names = rownames(vari))
+v <- vari[order(vari$overall,decreasing = T),]
+
+
+v15 <- v[1:15,]
+# To show the variable importance plot(top 10)
+ggplot(v15, aes(x=reorder(names, overall), weight=overall)) + 
+  geom_bar()  +
+  ylab("Variable Importance (1-10)") +
+  xlab("Variable Name")+
+  coord_flip()+ 
+  expand_limits(y=c(1,10))
+# It shows these elements are the main reasons for the employees to leave: 
+# Overtime, EnvironmentSatisfaction, BusinessTravelTravel_Frequently, JobSatisfaction, NumCompaniesWorked.
+
+```
+
+Figure 24: This contains a scale of the top 15 variables most importance for resignation.
+
+
+----What we can know based on the model----
+Use this model to predict the possibility of employees resigning.
+
+1. To find out the possibility of employees resigning based on the correlation between JobInvolvement and MonthlyIncome.
+```{r, echo=FALSE,comment=NA}
+weightedprobs <- predict(model_gbm, data_test, type = "prob")
+data_test$Prediction <- weightedprobs$Yes
+ggplot(data = data_test, aes(x = MonthlyIncome, y = Prediction)) +
+  geom_point(aes(color = JobInvolvement1), alpha = 1) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ JobInvolvement1) +
+  theme_solarized_2() +
+  theme(legend.position = "none") +
+  labs(title = "JobInvolvement", x = "MonthlyIncome", y = "Possibility of resigning")
+```
+
+Figure 25: This displays how monthly income influences resignation on different levels of job involvement.
+
+
+Above is a different view of figure 13. It is easier to see now that for those with higher job involvement, as their income increases, the turnover curve will be relatively stable unlike the lower job involvement. Therefore, in IBM, the most concerning factor for the most involved employees may not be about money, and further exploration is needed. 
+
+
+2. Here we used the model to predict which Job Role has a high turnover rate.
+```{r, echo=FALSE,comment=NA}
+ggplot(data = data_test, aes(x = JobRole, y = Prediction)) +
+  geom_boxplot(aes(fill = JobRole)) +
+  theme_solarized_2() +
+  labs(title = "Department turnover rate comparison", x = "Department", y = "Turnover rate")+
+  theme(axis.text.x = element_text(angle = 90))+
+  coord_flip()
+```
+
+Figure 26: This figure explores resignation rates in different departments.
+
+
+The boxplot above shows sales persons are most likely to resign while Managers and  Healthcare Representatives are most likely to stay.
+
+### **11    Conclusion**
+With many variables to consider in employee retention, the GLM model has helped us find the most important ones. The 5 most important factors for resignation are Overtime, Environmental satisfaction, Business Travel, Job Satisfaction, and Number of Companies Worked. Considering this information with the goal of retaining employees, employers should work hard to ensure minimal overtime and to create a good work environment.
